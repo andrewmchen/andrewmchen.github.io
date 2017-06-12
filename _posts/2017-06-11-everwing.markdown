@@ -1,0 +1,180 @@
+---
+layout: post
+title:  "Cracking Everwing"
+date:   2017-06-11 20:54:22 -0700
+categories: stuff
+---
+As much as I'd like to hide it, I've been (occasionally) playing a game on Facebook Messenger called Everwing.
+At its core, the game is just a generic scroll shooter where the goal is to kill as many bats flying towards
+you while simultaneously dodging fireballs and other projectiles. What really sets this game apart however,
+is in its MMORPGesque mechanics of grinding out gold and exp to buy virtual items and level up your character.
+In addition, in typical Facebook game fashion, it also automatically advertises itself in Facebook Messenger to
+your friends whenever you play it. The combination of both has seemingly made the game very popular -- at least
+in my own social groups.
+
+{:.center}
+![Beating Richard at Everwing](/assets/everwing/everwing.png){:height="400px"}
+
+Anyways, instead of playing the game, I was inspired by [this blog post](http://kevinwang.us/cheating-a-guide-to-achieving-high-scores-without-hard-work/)
+to gain gold and exp in a bit of a more unscrupulous manner.
+
+In that other post,
+the author showed how to set arbitrarily high scores in another Facebook Messenger game (Endless Lake).
+To do this, he simply replayed some HTTP POST requests which encoded the score of the player in plaintext.
+As it turns out, in the case of Everwing, this technique isn't as easily applicable since scores are encoded
+in a bit more opaque fashion. For this reason, the exploit presented here uses a slightly different method.
+
+# First Attempt
+As I mentioned above, I came at this problem first expecting to intercept and rewrite API requests
+to the server running Everwing. These sorts of techniques usually rely on tools which sit as a [man
+in the middle](https://en.wikipedia.org/wiki/Man-in-the-middle_attack) between your computer and the internet.
+By sitting on the delivery path between your computer and the internet, MITM tools have the freedom to inspect, drop,
+or modify, every (HTTP/S?) packet sent to and from your computer. In addition to helping us break
+Facebook games, ([it's even in the tutorial](http://docs.mitmproxy.org/en/stable/tutorials/gamecenter.html)), MITM tools are also how
+firewalls and [network intrusion detection systems (NIDS)](https://en.wikipedia.org/wiki/Intrusion_detection_system)
+work.
+
+One of these tools is called [mitmproxy](https://mitmproxy.org). I had a bit of experience using it at work in order
+to swap javascript in production environments with javascript edited locally so I decided to give it a crack again.
+
+After invoking mitmproxy and giving Everwing a run, I saw a request to a somewhat
+enticing host, https://api.amplitude.com/. Examining the payload of the request we see the following..
+
+{:.center}
+![](/assets/everwing/mitm_1.png){:height="400px"}
+
+Jackpot! All we have to do is change the score property in `e` and win. Unfortunately, after I tried this and replayed the request, the server responded with the `400 Bad Request` status code and the string `bad_checksum` in the body.
+
+{:.center}
+![](/assets/everwing/mitm_2.png){:height="400px"}
+
+In the request that we replayed, we can see that together with `e` another attribute
+called `checksum` is sent.
+
+I was a bit stumped at this point. Sure, I could look
+at the length of the checksum and make an educated guess as to which algorithm was
+used to create it, but I still would have no idea which contents were used as the input to the hash function.
+
+Fortunately for us, the game is implemented in javascript so we should have access to
+the source code for the game. In the source code, we should be able to learn
+what hash function is used and what contents are used as the input. In Everwing's
+case, the javascript is contained in one file and is loaded from [here](https://apps-141184676316522.apps.fbsbx.com/instant-bundle/1174389249249108/1523591784370851/browser-mobile.js).
+
+After asking Chrome to pretty print the source, we grep for `checksum` hoping for the best. As it turns out, there is only one result for `checksum` and it's the one sent in the payload to `api.amplitude.com`. Great!
+
+{% highlight javascript %}
+p = {
+    client: this.options.apiKey,
+    e: h,
+    v: n.API_VERSION,
+    upload_time: u,
+    checksum: c(n.API_VERSION + this.options.apiKey + h + u)
+}
+{% endhighlight %}
+
+Finding what the function `c` does here is simply a matter of setting a breakpoint at this
+line and stepping in.
+
+After doing all of this, it turns out the checksum is just
+a md5 hash computed on the string created by concatenating the other fields in the
+payload -- something we could probably have guessed....
+
+Cool -- so in my next attempt, I'll simply update the checksum after editing the score in `e`. To my disappointment, despite the server responding with the `200` status
+code, my score didn't change at all.
+What was wrong?
+
+Well, it turns out that [amplitude.com](http://amplitude.com/) is not the backend to Everwing, but instead an analytics
+product which Everwing uses to figure out what type of users are playing their games
+and how often. Instead of
+telling Everwing's backend what score I "got", we've been fabricating
+fake analytics data to amplitude.com. OK, back to square one...
+
+# Second Attempt
+With some more digging, the real endpoint which Everwing uses to communicate my score is [wintermute-151001.appspot.com](http://wintermute-151001.appspot.com). However, in
+all requests to this endpoint, the data is lz-compressed using [this](https://github.com/pieroxy/lz-string) library. The request looks like the following.
+
+{:.center}
+![](/assets/everwing/wintermute.png)
+
+In the process of looking through the source to find out what data
+is compressed, I stumbled upon an easier method to break Everwing. Instead of intercepting and rewriting the requests used to communicate with Everwing's backend servers, we can put breakpoints in the source and then modify the variable containing the score before the code posts any data about my performance.
+
+I went about doing this in a similar fashion as I had done earlier with the checksum. In the request to `wintermute` the json body contains the string `single_instance`. Searching,
+the source code for this string, we can see that there is exactly one location with it. Putting a breakpoint and then crawling back up the stack shows us the code where the scores
+are set.
+{% highlight javascript %}
+return ShowGameResultsCommand.prototype.execute = function(e) {
+    var t = this
+      , i = this.mvc.getModel(f.default.NAME)
+      , r = this.mvc.getModel(g.default.NAME)
+      , a = this.mvc.getModel(m.default.NAME)
+      , o = this.mvc.getModel(w.default.NAME)
+      , l = this.mvc.getModel(d.default.NAME)
+      , c = i.getEquipped()
+      , h = r.getEquipped("left")
+      , u = r.getEquipped("right")
+      , p = a.currentPlayer
+      , y = !!o.activeID
+      , v = y;
+    v && e.score < S && (e.score = S);
+    var x = (0,
+    n.merge)({
+        playerID: c.id,
+        sidekickLeftID: h ? h.id : "",
+        sidekickRightID: u ? u.id : "",
+        showTutorialLeaderboard: v
+    }, e);
+    if (a.queueScreenshot(m.default.SCREENSHOT_SHARE_SCORE, x.score),
+    s.default.playSong("game_over"),
+    this.mvc.sendNotification("GameUIViewController.hide"),
+    GC.app.gameView.showMenuLayers("", null, !0),
+    l.completeActiveMission(x)) {
+        var _ = l.activeGoal.trophiesPerStreak;
+        x.premiumFromMissionStreak = l.streak * _
+    }
+    return y && !v || !p ? void this.showResultsDialog(x) : (x.premiumFromPassedFriends = 0,
+    x.score > p.score && (x.premiumFromPassedFriends += a.awardPassedFriend(p)),
+    x.lastRank = p.rank,
+    void a.recordGamePlay(x.score).then(function(e) {
+        return t.runAfterSocial(x, e, x.lastRank)
+    }))
+}
+{% endhighlight %}
+
+Putting a breakpoint here allows us to modify the variable `e` which contains our score
+
+{:.center}
+![](/assets/everwing/console_1.png)
+
+Changing the score is as easy as entering
+{% highlight javascript %}
+e.score = 99999
+e.commonPossible = 99999
+e.commonEarned = 99999
+e.playerXP = 99999
+{% endhighlight %}
+in the console.
+
+{:.center}
+![](/assets/everwing/console_2.png)
+
+After letting the code continue, we quickly see the results of our exploit :)
+
+{:.center}
+![](/assets/everwing/exploit.png){:height="400px"}
+
+# Conclusion
+> Never trust the client. (Famous Computer Scientist)
+
+As [DorothySim](https://news.ycombinator.com/user?id=DorothySim) notes [on Hacker News](https://news.ycombinator.com/item?id=14194159), these sorts of exploits are really
+just low hanging fruit -- especially when you have access to the unminified source.
+
+Of course, Everwing can do a better job making these cheats harder to create by doing some simple validation on the requests sent back. For example,
+it could reject all requests with large scores when the `playerXP` is set to 0.
+However, all these attempts to stop cheating only
+obfuscate and make cheating marginally harder. To really stop cheating, you have to handle calculations of score on the server and treat the client as an untrusted piece of code.
+
+In Everwing it might look like the following.
+- Every time you kill `n` monsters, the client sends some request to the server.
+  - If the client sends too many requests, the server can rate limit the client.
+- After you die, the server totals the number of monsters you killed.

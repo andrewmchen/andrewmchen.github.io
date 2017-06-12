@@ -2,6 +2,7 @@
 layout: post
 title:  "Cracking Everwing"
 date:   2017-06-11 20:54:22 -0700
+description: "Using mitmproxy and chrome debugger to crack Everwing."
 categories: stuff
 ---
 As much as I'd like to hide it, I've been (occasionally) playing a game on Facebook Messenger called Everwing.

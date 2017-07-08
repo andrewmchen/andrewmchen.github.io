@@ -7,7 +7,7 @@ categories: stuff
 ---
 As much as I'd like to hide it, I've been (occasionally) playing a game on Facebook Messenger called Everwing.
 At its core, the game is just a generic scroll shooter where the goal is to kill as many bats flying towards
-you while simultaneously dodging fireballs and other projectiles. What really sets this game apart however,
+you while simultaneously dodging fireballs and other projectiles. What really sets this game apart, however,
 is in its MMORPGesque mechanics of grinding out gold and exp to buy virtual items and level up your character.
 In addition, in typical Facebook game fashion, it also automatically advertises itself in Facebook Messenger to
 your friends whenever you play it. The combination of both has seemingly made the game very popular -- at least
@@ -167,7 +167,7 @@ After letting the code continue, we quickly see the results of our exploit :)
 # Conclusion
 > Never trust the client. (Famous Computer Scientist)
 
-As [DorothySim](https://news.ycombinator.com/user?id=DorothySim) notes [on Hacker News](https://news.ycombinator.com/item?id=14194159), these sorts of exploits are really
+As [DorothySim](https://news.ycombinator.com/user?id=DorothySim) notes [on Hacker News](https://news.ycombinator.com/item?id=14194159), these sorts of client sided exploits are really
 just low hanging fruit -- especially when you have access to the unminified source.
 
 Of course, Everwing can do a better job making these cheats harder to create by doing some simple validation on the requests sent back. For example,
